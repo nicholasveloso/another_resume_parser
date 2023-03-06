@@ -1,3 +1,4 @@
+""" this"""
 import re
 from copy import deepcopy
 from itertools import accumulate
@@ -5,6 +6,7 @@ from pprint import pprint
 from typing import Optional, Tuple, Union
 
 import pdfplumber as pb
+import spacy
 from constants import (  # pylint: disable=[E0402]
     CERT_DIC,
     CITIES,
@@ -23,16 +25,14 @@ from unidecode import unidecode
 
 validate = ValidateKeys()
 
+nlp = spacy.load("en_core_web_sm")
 
 # ____________________________________________________________ parse P1 ________________________________________________
-
-
 def check_valid_line(line: str) -> bool:
     """this"""
-    if not re.match(r"^[_\W]+$", line):  # pylint:disable=[R1703,R1705]
+    if not re.match(r"^[_\W]+$", line):
         return True
-    else:
-        return False
+    return False
 
 
 def pdf_to_words(pdf_file: str) -> list:
@@ -63,10 +63,8 @@ def get_line_details(word_details: list) -> list:
     x0, top, page_no = 0, 0, 1
     string = ""
 
-
     for page in word_details:
         for word in page:
-            # adding first word details in the variables
             if check_x1 == 0:
                 x0 = word["x0"]
                 top = word["top"]
@@ -75,9 +73,6 @@ def get_line_details(word_details: list) -> list:
                 stroking_clr = word["stroking_color"]
                 non_stroking_clr = word["non_stroking_color"]
                 size = word["size"]
-            # checking if distance from top is same, gap in
-            # between less than 10 as well as fontname is same
-            # or not for two words if yes add to line
             elif (
                 int(float(word["top"])) == check_top and abs(word["x0"] - check_x1) < 10
             ) and check_fontname == word["fontname"]:
@@ -87,9 +82,6 @@ def get_line_details(word_details: list) -> list:
                     string = string + " "
                 else:
                     string = string + unidecode(word["text"]) + " "
-            # if checks are not matching appends the line in
-            # detailed_lines after appending previous line update
-            # variables with current details
             else:
                 line = {
                     "line": string.rstrip(": "),
@@ -130,9 +122,8 @@ def get_p1(pdf_file: str) -> list:
     return details
 
 
+# ____________________________________________________________________________________________________________________________________________________
 # ____________________________________________________________ parse P2 ________________________________________________
-
-
 def is_near(
     num1: Union[int, float],
     num2: Union[int, float],
@@ -145,11 +136,19 @@ def is_near(
         return False
 
 
+def format_word(line: str):
+    """regex"""
+    line = re.sub(r"[^a-zA-Z0-9@.+%]+", " ", line)
+    return line
+
+
 def find_headers(lines_and_info: list) -> tuple:
     """Thus we will match the size and form our headers list."""
     heads_list = []
     size_list = []
     for i, ele in enumerate(lines_and_info):  # pylint: disable=[W0612]
+        line = format_word(lines_and_info[i]["line"].lower())
+        lines_and_info[i]["line"] = line.strip()
         if lines_and_info[i]["line"].lower() in POSSIBLE_HEADERS:
             heads_list.append(lines_and_info[i])
             size_list.append(lines_and_info[i]["size"])
@@ -200,10 +199,10 @@ def merge_para(result_with_info: list) -> list:
     line = {}
     for itr, each_line in enumerate(result_with_info):
         if "(cid:" not in each_line["line"]:
+
             if itr == 0:
                 line = each_line
             elif each_line["top"] == result_with_info[itr - 1]["top"]:
-                merged_lines.append(line)
                 line = each_line
             elif (
                 each_line["fontname"] == result_with_info[itr - 1]["fontname"]
@@ -385,15 +384,16 @@ def get_p2(p1_res: list) -> Tuple[Optional[dict], Optional[dict]]:
     merged_lines = merge_para(list_of_lines)
 
     sec = seprate_sections(merged_lines, headers[1], headers[2])
+
     detail_res = post_processing(sec)
+
     result = get_lines_only(detail_res)
 
     return result, detail_res
 
 
+# ____________________________________________________________________________________________________________________________________________________
 # ____________________________________________________________ parse P3 _________________________________________________
-
-
 def remove_newline(line: str) -> str:
     """Remove \n from the given line"""
     return line.replace("\n ", "")
@@ -606,6 +606,14 @@ def extract_curr(result_w_det: dict, output: dict) -> dict:
 def extract_skill(result: dict, output: dict) -> dict:
     """Extract skills listed or present in the resume."""
     for skill in result:
+        if skill == "others":
+            for sub_skill in result[skill]:
+                if not sub_skill.lower() in SKILL_LIST:
+                    continue
+                if output["skills"]:
+                    output["skills"] = output["skills"] + result[skill][sub_skill]
+                else:
+                    output["skills"] = result[skill][sub_skill]
         if skill.lower() in SKILL_LIST:
             if output["skills"]:
                 output["skills"] = output["skills"] + result[skill]
@@ -673,6 +681,15 @@ def extract_proj(result: dict, result_w_det: dict, output: dict) -> dict:
     """Extract project details done by the candidate."""
     proj_list, res = [], []
     for proj in result:
+        if proj == "others":
+            for sub_proj in result["others"]:
+                if not "proj" in sub_proj.lower():
+                    continue
+                if result["others"][sub_proj]:
+                    res = check_n_div_content(
+                        result["others"][sub_proj], result_w_det["others"][sub_proj]
+                    )
+                    break
         if "proj" in proj.lower():
             if result[proj]:
                 res = check_n_div_content(result[proj], result_w_det[proj])
@@ -736,6 +753,10 @@ def extract_about(result: dict, output: dict) -> dict:
     return output
 
 
+def extract_loc(result: dict, output: dict) -> dict:
+    """this"""
+
+
 def get_p3(p2_res: dict, p2_res_det: dict) -> dict:
     """This"""
     output = deepcopy(CONST_OUTPUT)
@@ -749,13 +770,15 @@ def get_p3(p2_res: dict, p2_res_det: dict) -> dict:
     extract_achiv(p2_res, output)
     extract_proj(p2_res, p2_res_det, output)
     extract_curr(p2_res_det, output)
+    extract_loc(p2_res_det, output)
+
+    pprint(output)
 
     return output
 
 
+# ______________________________________________________________________________________________________________________________________________
 # ____________________________________________________ parse P4 __________________________________________________________________
-
-
 def extract_date_p4(line: str) -> list:
     """This"""
     rgx = re.compile(
@@ -935,9 +958,8 @@ def get_p4(p3_res: dict) -> Optional[dict]:
         return output
 
 
+# ______________________________________________________________________________________________________________________________
 # __________________________________________________________________________________________________________________________________
-
-
 def process_request(  # pylint: disable=[R0022]
     pdf_file: str, response: dict, table: str, keys_: dict
 ) -> Optional[dict]:
@@ -960,8 +982,6 @@ def process_request(  # pylint: disable=[R0022]
             response["parse_status"].append("p1_complete")
             response["parse_status"].append("p2_complete")
 
-            # print(result["p2"])
-
             result["p3"] = get_p3(result["p2"], p2_res_det)
             if result["p3"]:
                 response["full_output"] = result
@@ -973,7 +993,6 @@ def process_request(  # pylint: disable=[R0022]
                     response["parse_status"].append("p4_complete")
                     response["full_is_parsed"] = True
 
-                    pprint(result["p4"])
                     return response
 
                 else:
@@ -992,18 +1011,9 @@ def process_request(  # pylint: disable=[R0022]
 
 # _______________________________________________________________________________________________________________________________________
 
-
 file1 = "./637a1cc51da81cde8ff5e177_1677548487.751984.pdf"  # perfect case
-
-file2 = "./5fcde140dcd1797990d5adcb_1671966868.6323903.pdf" # max() error
-file2_1 ="./632dab49259836002f29d7b5_1672398248.2854657.pdf"
-file3 = "./63fc2daa95f87ac5f6a7808a_1677471183.4823444.pdf" # not a PDF Error
-file4 = "./6339c9a9aa77440104de9f64_1664731767.8778086.pdf" # list index out of range
-file4_1 = "./6325cfae9037d30030485d20_1663425644.55769.pdf" #     ""
-file_5 = "./5f3b686472cebb6673435395_1618294181.0.pdf"      # not enough values to unpack
-file_6 = "./5f4353814fc740311f7543c1_1618294176.0.pdf"      # string indices must be int
-
-pdf_file = file_6
+file2 = "./5f80389ac2a954277250c420_1618294093.0.pdf"
+pdf_file = file2
 response = {}
 table = "some"
 keys_ = "some"
